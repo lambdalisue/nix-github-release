@@ -16,6 +16,16 @@
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
     in
     {
+      lib = import ./lib;
+
+      checks = forAllSystems (
+        pkgs:
+        import ./tests {
+          inherit pkgs;
+          nix-github-release = self;
+        }
+      );
+
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
           packages = [

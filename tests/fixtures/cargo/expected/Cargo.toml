@@ -1,0 +1,10 @@
+[workspace]
+members = ["crates/app", "crates/core"]
+
+[workspace.package]
+version = "1.2.3-4-gabc1234"
+
+[workspace.dependencies]
+app-core = { path = "crates/core", version = "1.2.3-4-gabc1234" }
+serde = "1.0.0"
+zero = "0.0.0"
