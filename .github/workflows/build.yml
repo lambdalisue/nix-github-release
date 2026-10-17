@@ -22,22 +22,27 @@ on:
         description: The directory of the flake within the repository, when it is not the root.
         type: string
         default: ""
-      package:
-        description: The package attribute to build.
+      packages:
+        description: The package attributes to build, separated by spaces.
         type: string
         default: default
       runners:
         description: A JSON array of the runners to build on, one per system the cache should serve.
         type: string
         default: '["ubuntu-latest", "ubuntu-24.04-arm", "macos-latest"]'
+      timeout-minutes:
+        description: How long one runner may take, for builds that compile from scratch when the cache is cold.
+        type: number
+        default: 60
       cachix-cache:
         description: The Cachix cache to read from, and to push to when a token is given.
         type: string
         default: ""
       cachix-pin:
         description: >-
-          A pin name to keep the build under in the cache, suffixed with the
-          system, so cache retention never collects it. Needs the token.
+          A pin name to keep each build under in the cache, so cache retention
+          never collects it: `<pin>-<system>` for the default package and
+          `<pin>-<package>-<system>` for any other. Needs the token.
         type: string
         default: ""
     secrets:
@@ -56,12 +61,13 @@ jobs:
       matrix:
         runner: ${{ fromJSON(inputs.runners) }}
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
     # Every value reaches the scripts through the environment, so none of its
     # text can be read as shell.
     env:
       REF: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
       DIR: ${{ inputs.dir }}
-      PACKAGE: ${{ inputs.package }}
+      PACKAGES: ${{ inputs.packages }}
       CACHE: ${{ inputs.cachix-cache }}
       PIN: ${{ inputs.cachix-pin }}
     steps:
@@ -76,31 +82,40 @@ jobs:
           authToken: ${{ secrets.cachix-auth-token }}
       - name: Build
         run: |
-          flake="github:${GITHUB_REPOSITORY}/${REF}${DIR:+?dir=${DIR}}#${PACKAGE}"
+          flake="github:${GITHUB_REPOSITORY}/${REF}${DIR:+?dir=${DIR}}"
           echo "FLAKE=${flake}" >> "$GITHUB_ENV"
-          out=$(nix build --print-build-logs --print-out-paths --no-link "$flake")
-          echo "OUT=${out}" >> "$GITHUB_ENV"
+          for package in $PACKAGES; do
+            nix build --print-build-logs --print-out-paths --no-link "${flake}#${package}" > "out-${package}"
+          done
       - name: Check the version
         run: |
-          version=$(nix eval --raw "${FLAKE}.version")
-          echo "version: ${version}"
           case "$REF" in
             v[0-9]*) ;;
             *) exit 0 ;;
           esac
-          if [ "$version" != "${REF#v}" ]; then
-            echo "the package is ${version}, not the release ${REF#v}" >&2
-            exit 1
-          fi
-          program=$(nix eval --raw "${FLAKE}.meta.mainProgram" 2>/dev/null || true)
-          if [ -n "$program" ]; then
-            "${OUT}/bin/${program}" --version | tee /dev/stderr | grep -Fqw -- "${REF#v}"
-          fi
+          for package in $PACKAGES; do
+            version=$(nix eval --raw "${FLAKE}#${package}.version")
+            if [ "$version" != "${REF#v}" ]; then
+              echo "${package} is ${version}, not the release ${REF#v}" >&2
+              exit 1
+            fi
+            program=$(nix eval --raw "${FLAKE}#${package}.meta.mainProgram" 2>/dev/null || true)
+            if [ -n "$program" ]; then
+              "$(cat "out-${package}")/bin/${program}" --version | tee /dev/stderr | grep -Fqw -- "${REF#v}"
+            fi
+          done
       # Pushed here rather than by the cache action's post step, which runs
       # after this one: a pin needs the path in the cache already.
       - name: Pin
         if: inputs.cachix-pin != ''
         run: |
           system=$(nix eval --raw --impure --expr builtins.currentSystem)
-          cachix push "$CACHE" "$OUT"
-          cachix pin "$CACHE" "${PIN}-${system}" "$OUT" --keep-revisions 3
+          for package in $PACKAGES; do
+            out=$(cat "out-${package}")
+            cachix push "$CACHE" "$out"
+            name="${PIN}-${system}"
+            if [ "$package" != default ]; then
+              name="${PIN}-${package}-${system}"
+            fi
+            cachix pin "$CACHE" "$name" "$out" --keep-revisions 3
+          done
