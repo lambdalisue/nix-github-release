@@ -1,0 +1,106 @@
+name: Nix build
+
+# Builds a flake package the way users install it: through a `github:`
+# reference, from the archive GitHub serves. Only that archive has VERSION
+# filled in, so only this build reports the tag, and only this build is the
+# one an install looks up in the cache. A build from a checkout would be
+# neither.
+#
+# Called with a release tag, it also fails unless the package is that
+# release: its derivation version is the tag's, and, when it names a program,
+# `--version` prints it.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: >-
+          The tag or commit to build. Defaults to the commit the calling run
+          is for (a pull request's head commit, not its merge commit).
+        type: string
+        default: ""
+      dir:
+        description: The directory of the flake within the repository, when it is not the root.
+        type: string
+        default: ""
+      package:
+        description: The package attribute to build.
+        type: string
+        default: default
+      runners:
+        description: A JSON array of the runners to build on, one per system the cache should serve.
+        type: string
+        default: '["ubuntu-latest", "ubuntu-24.04-arm", "macos-latest"]'
+      cachix-cache:
+        description: The Cachix cache to read from, and to push to when a token is given.
+        type: string
+        default: ""
+      cachix-pin:
+        description: >-
+          A pin name to keep the build under in the cache, suffixed with the
+          system, so cache retention never collects it. Needs the token.
+        type: string
+        default: ""
+    secrets:
+      cachix-auth-token:
+        description: Lets the build be pushed to the cache. Without it the cache is only read.
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: ${{ fromJSON(inputs.runners) }}
+    runs-on: ${{ matrix.runner }}
+    # Every value reaches the scripts through the environment, so none of its
+    # text can be read as shell.
+    env:
+      REF: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
+      DIR: ${{ inputs.dir }}
+      PACKAGE: ${{ inputs.package }}
+      CACHE: ${{ inputs.cachix-cache }}
+      PIN: ${{ inputs.cachix-pin }}
+    steps:
+      # The token only raises the GitHub API rate limit Nix fetches under.
+      - uses: cachix/install-nix-action@v31.11.2
+        with:
+          github_access_token: ${{ github.token }}
+      - uses: cachix/cachix-action@v17
+        if: inputs.cachix-cache != ''
+        with:
+          name: ${{ inputs.cachix-cache }}
+          authToken: ${{ secrets.cachix-auth-token }}
+      - name: Build
+        run: |
+          flake="github:${GITHUB_REPOSITORY}/${REF}${DIR:+?dir=${DIR}}#${PACKAGE}"
+          echo "FLAKE=${flake}" >> "$GITHUB_ENV"
+          out=$(nix build --print-build-logs --print-out-paths --no-link "$flake")
+          echo "OUT=${out}" >> "$GITHUB_ENV"
+      - name: Check the version
+        run: |
+          version=$(nix eval --raw "${FLAKE}.version")
+          echo "version: ${version}"
+          case "$REF" in
+            v[0-9]*) ;;
+            *) exit 0 ;;
+          esac
+          if [ "$version" != "${REF#v}" ]; then
+            echo "the package is ${version}, not the release ${REF#v}" >&2
+            exit 1
+          fi
+          program=$(nix eval --raw "${FLAKE}.meta.mainProgram" 2>/dev/null || true)
+          if [ -n "$program" ]; then
+            "${OUT}/bin/${program}" --version | tee /dev/stderr | grep -Fqw -- "${REF#v}"
+          fi
+      # Pushed here rather than by the cache action's post step, which runs
+      # after this one: a pin needs the path in the cache already.
+      - name: Pin
+        if: inputs.cachix-pin != ''
+        run: |
+          system=$(nix eval --raw --impure --expr builtins.currentSystem)
+          cachix push "$CACHE" "$OUT"
+          cachix pin "$CACHE" "${PIN}-${system}" "$OUT" --keep-revisions 3
