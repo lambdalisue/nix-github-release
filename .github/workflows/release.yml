@@ -1,0 +1,19 @@
+name: Release
+
+# Publishing a GitHub Release starts this. There is nothing to build or
+# attach: projects call the workflows and the flake by tag. What it does is
+# prove, on the archive GitHub serves for the new tag, that the tag reaches a
+# package — the one thing no check before the release can see.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  example:
+    uses: ./.github/workflows/build.yml
+    with:
+      ref: ${{ github.event.release.tag_name }}
+      dir: tests/example

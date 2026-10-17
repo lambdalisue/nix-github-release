@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A pull request only needs its latest commit checked. A run on main waits
+# for the one before it instead of cancelling it, so each one finishes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@v31.11.2
+      # Load the development shell (flake.nix) into the job, so the steps
+      # below run the same commands as local development.
+      - uses: nicknovitski/nix-develop@v1.2.1
+      # The same gate as local development (justfile).
+      - run: just ci
+
+  # The reusable workflow, called the way a project calls it, on the example
+  # flake of this commit.
+  example:
+    uses: ./.github/workflows/build.yml
+    with:
+      dir: tests/example
