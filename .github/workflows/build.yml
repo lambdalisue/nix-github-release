@@ -75,11 +75,15 @@ jobs:
       - uses: cachix/install-nix-action@v31.11.2
         with:
           github_access_token: ${{ github.token }}
+      # Not the daemon: it is stopped with a fixed drain timeout, which a
+      # large closure built late misses, failing a build that succeeded.
+      # Scanning the store at the end pushes the same paths and waits for them.
       - uses: cachix/cachix-action@v17
         if: inputs.cachix-cache != ''
         with:
           name: ${{ inputs.cachix-cache }}
           authToken: ${{ secrets.cachix-auth-token }}
+          useDaemon: false
       - name: Build
         run: |
           flake="github:${GITHUB_REPOSITORY}/${REF}${DIR:+?dir=${DIR}}"
