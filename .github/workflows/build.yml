@@ -6,8 +6,9 @@ name: Nix build
 # one an install looks up in the cache. A build from a checkout would be
 # neither.
 #
-# Called with a release tag, it also fails unless the package is that
-# release: its derivation version is the tag's, and, when it names a program,
+# Called with a release tag, it builds only once GitHub's archives of the
+# tagged commit name the tag, and fails unless the package is that release:
+# its derivation version is the tag's, and, when it names a program,
 # `--version` prints it.
 on:
   workflow_call:
@@ -54,8 +55,54 @@ permissions:
   contents: read
 
 jobs:
+  # GitHub generates a commit's archive once and keeps serving it for a while
+  # after the commit is tagged, with VERSION still naming the commit, not the
+  # tag. Every release has such an archive, since CI built the commit before
+  # it could be tagged. A build of the tag in that window builds, caches and
+  # pins the commit instead of the release, so nothing is built before every
+  # archive Nix may fetch names the tag. Nix asks the API's tarball endpoint
+  # with a token and the archive URL without one, and GitHub keeps the two
+  # apart, so both are asked. Without a token the archive URL serves only a
+  # public repository, which is what a `github:` install needs anyway.
+  archive:
+    name: wait for the archives
+    runs-on: ubuntu-latest
+    # How long GitHub keeps the old archive is unknown; a few hours is far
+    # beyond what has been seen, and still ends a run that would never pass.
+    timeout-minutes: 240
+    env:
+      REF: ${{ inputs.ref || github.event.pull_request.head.sha || github.sha }}
+      DIR: ${{ inputs.dir }}
+      TOKEN: ${{ github.token }}
+    steps:
+      - name: Wait until GitHub's archives of the tag name the release
+        run: |
+          case "$REF" in
+            v[0-9]*) ;;
+            *) exit 0 ;;
+          esac
+          api="https://api.github.com/repos/${GITHUB_REPOSITORY}"
+          sha=$(curl -fsSL -H "Authorization: Bearer ${TOKEN}" -H "Accept: application/vnd.github.sha" "${api}/commits/${REF}")
+          file="${DIR:+${DIR}/}VERSION"
+          for url in "${api}/tarball/${sha}" "https://github.com/${GITHUB_REPOSITORY}/archive/${sha}.tar.gz"; do
+            header=
+            case "$url" in
+              "$api"/*) header="Authorization: Bearer ${TOKEN}" ;;
+            esac
+            # The leading `*` stands for the archive's top directory alone.
+            until
+              named=$(curl -fsSL ${header:+-H "$header"} "$url" | tar -xzOf - --wildcards --no-wildcards-match-slash "*/${file}")
+              [ "$named" = "$REF" ]
+            do
+              echo "${url} names ${named:-nothing} in ${file}, not ${REF}; asking again in a minute"
+              sleep 60
+            done
+            echo "${url} names ${REF}"
+          done
+
   build:
     name: build (${{ matrix.runner }})
+    needs: archive
     strategy:
       fail-fast: false
       matrix:
