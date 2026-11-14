@@ -29,7 +29,8 @@ it describes are `v` followed by the version.
 - fetched at a commit past a tag, it is that tag's version with the distance
   and the commit after it, as `git describe` writes them;
 - from a checkout, or a commit no tag precedes, it is the placeholder followed
-  by the commit, so such a build never passes for a release.
+  by the commit as `git describe` writes it, so such a build never passes for
+  a release and, from a semver placeholder, is still valid semver.
 
 ## Stamping a Cargo build
 

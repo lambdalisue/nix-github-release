@@ -47,14 +47,14 @@ in
           described = "$Format:%(describe:tags,match=v[0-9]*)$\n";
           rev = "abc1234";
         };
-        expected = "0.0.0-abc1234";
+        expected = "0.0.0-gabc1234";
       };
       testACommitBeforeAnyTagNamesTheCommit = {
         expr = fromDescribe {
           described = "\n";
           rev = "abc1234";
         };
-        expected = "0.0.0-abc1234";
+        expected = "0.0.0-gabc1234";
       };
       testTheFallbackStartsFromTheGivenPlaceholder = {
         expr = fromDescribe {
@@ -62,7 +62,14 @@ in
           rev = "abc1234";
           placeholder = "0.1.0";
         };
-        expected = "0.1.0-abc1234";
+        expected = "0.1.0-gabc1234";
+      };
+      testACommitOfDigitsWithALeadingZeroStillNamesAValidVersion = {
+        expr = fromDescribe {
+          described = "";
+          rev = "0488990";
+        };
+        expected = "0.0.0-g0488990";
       };
       testStampingAlsoNamesTheVersionOfTheDerivation = {
         expr =

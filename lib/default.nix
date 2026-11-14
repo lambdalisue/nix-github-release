@@ -2,7 +2,9 @@ let
   # The version a `git describe` result names: `v1.2.3` is 1.2.3, and a commit
   # past it, `v1.2.3-4-gabc1234`, keeps the distance and the commit as a
   # prerelease suffix. Anything else — the placeholder GitHub did not fill in,
-  # or nothing because no tag precedes the commit — names the commit instead.
+  # or nothing because no tag precedes the commit — names the commit instead,
+  # with the `g` git describe puts before it: a bare short rev can be all
+  # digits with a leading zero, which semver forbids in a pre-release.
   fromDescribe =
     {
       described,
@@ -12,7 +14,7 @@ let
     let
       matched = builtins.match "v([0-9][^[:space:]]*)[[:space:]]*" described;
     in
-    if matched == null then "${placeholder}-${rev}" else builtins.head matched;
+    if matched == null then "${placeholder}-g${rev}" else builtins.head matched;
 in
 {
   inherit fromDescribe;

@@ -47,7 +47,7 @@ serves; in the repository it stays the placeholder.
       pkgs = nixpkgs.legacyPackages.${system};
       craneLib = crane.mkLib pkgs;
       # 1.4.0 at the tag v1.4.0, 1.4.0-3-gabc1234 three commits past it, and
-      # 0.0.0-<commit> from a checkout.
+      # 0.0.0-g<commit> from a checkout.
       version = nix-github-release.lib.version { inherit self; };
       build = {
         pname = "tool";
