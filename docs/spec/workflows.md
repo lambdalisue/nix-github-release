@@ -13,6 +13,10 @@ source a user who installs that reference gets — never from a checkout.
 - With no ref, it builds the commit the calling run is for; for a pull
   request, the head commit.
 - With no packages, it builds the default package.
+- Called with a release tag `vX.Y.Z`, it builds nothing until every archive
+  of the tagged commit that Nix may fetch has the flake's VERSION filled in
+  with the tag, and fails, having built nothing, if that does not happen
+  within four hours.
 - Called with a release tag `vX.Y.Z`, the run fails unless every package's
   version is `X.Y.Z` and, for a package that names a program, its
   `--version` output contains `X.Y.Z`.

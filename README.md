@@ -99,13 +99,22 @@ jobs:
 
 The workflow builds the `github:` reference, not a checkout: only the archive
 has VERSION filled in, so only that build is the one users get from the cache.
-Called with a release tag, it fails unless the package reports that release.
+Called with a release tag, it first waits until GitHub's archives of the tag
+name the release (see below), then fails unless the package reports that
+release.
 
 ## Caveat
 
-The archive of an untagged commit changes when that commit is tagged later. A
-lock file that pinned such a commit then fails its hash check the next time it
-is fetched; `nix flake update` fixes it. Pins to a tag are never affected.
+A commit's archive changes when the commit is tagged: VERSION names the tag
+instead of the commit. A lock file that pinned the archive from before then
+fails its hash check the next time it is fetched; `nix flake update` fixes it.
+
+A tag is not spared at first. GitHub keeps serving the archive it generated
+before the tag for a while — tens of minutes have been seen — and CI has
+always generated one, so a fetch of the tag in that window gets the commit's
+version, and a lock written then fails its hash check once GitHub serves the
+tag's archive. Locks written after that are not affected. The build workflow
+waits out this window before it builds a release.
 
 ## Development
 
